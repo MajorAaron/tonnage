@@ -1,0 +1,8 @@
+{
+  "name": "tonnage",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tonnage — AI photo-to-bid for junk removal operators. A Major Solutions Studio business idea.",
+  "type": "module",
+  "dependencies": {}
+}
