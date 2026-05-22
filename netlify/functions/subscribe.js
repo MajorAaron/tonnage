@@ -31,10 +31,11 @@ export default async (req) => {
           {
             type: 'execute',
             stmt: {
-              sql: 'INSERT INTO subscribers (email, source) VALUES (?, ?) ON CONFLICT(email) DO UPDATE SET source = excluded.source',
+              sql: 'INSERT INTO subscribers (email, idea_slug, source) VALUES (?, ?, ?) ON CONFLICT(email, idea_slug) DO UPDATE SET source = excluded.source, updated_at = CURRENT_TIMESTAMP',
               args: [
                 { type: 'text', value: email },
-                { type: 'text', value: 'tonnage' }
+                { type: 'text', value: 'tonnage' },
+                { type: 'text', value: 'tonnage_landing' }
               ]
             }
           },
@@ -42,9 +43,38 @@ export default async (req) => {
         ]
       })
     });
-    if (!r.ok) {
-      const txt = await r.text();
-      console.error('[subscribe] turso error', r.status, txt);
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || data?.results?.[0]?.type === 'error') {
+      const msg = data?.results?.[0]?.error?.message || `turso ${r.status}`;
+      console.error('[subscribe] turso error', msg);
+      // Fallback: try insert without idea_slug conflict target
+      try {
+        const r2 = await fetch(url, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${TURSO_DB_TOKEN}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            requests: [
+              {
+                type: 'execute',
+                stmt: {
+                  sql: 'INSERT INTO subscribers (email, idea_slug, source) VALUES (?, ?, ?)',
+                  args: [
+                    { type: 'text', value: email },
+                    { type: 'text', value: 'tonnage' },
+                    { type: 'text', value: 'tonnage_landing' }
+                  ]
+                }
+              },
+              { type: 'close' }
+            ]
+          })
+        });
+        const d2 = await r2.json().catch(() => ({}));
+        if (d2?.results?.[0]?.type === 'error') {
+          // Likely UNIQUE constraint violation — treat as already-subscribed = success
+          return new Response(JSON.stringify({ ok: true, already_subscribed: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+      } catch (_) {}
       return new Response(JSON.stringify({ error: 'Subscribe failed' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
     }
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
